@@ -6,8 +6,18 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 
 // Initialize Gemini API
-// It will pick up the API key automatically from process.env.GEMINI_API_KEY
-const ai = new GoogleGenAI({});
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is missing. Please set it in the AI Studio Secrets panel.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 // Simple retry helper
 async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
@@ -50,7 +60,7 @@ async function startServer() {
 
       // Convert previous messages to contents block if doing manual history, but we'll cheat a bit and just put it in the prompt or use chat initialization.
       // Usually, using chat API is cleaner:
-      const chat = ai.chats.create({
+      const chat = getAI().chats.create({
         model: "gemini-2.5-flash",
         config: {
             systemInstruction: "You are an elite AI Business Intelligence analyst for 'Awinlytics'. Provide sharp, modern, data-driven insights. Format answers beautifully in Markdown.",
@@ -77,7 +87,7 @@ Data Summary:
 ${JSON.stringify(summaryProps, null, 2)}
 `;
 
-      const response = await retryWithBackoff(() => ai.models.generateContent({
+      const response = await retryWithBackoff(() => getAI().models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
         config: {
