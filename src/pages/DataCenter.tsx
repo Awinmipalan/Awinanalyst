@@ -1,0 +1,240 @@
+import React, { useState, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { motion, AnimatePresence } from 'motion/react';
+import { UploadCloud, File, AlertCircle, CheckCircle2, Loader2, Sparkles, Database } from 'lucide-react';
+import Papa from 'papaparse';
+import AIPulse from '@/src/components/AIPulse';
+import { Skeleton } from '@/src/components/Skeleton';
+
+export default function DataCenter() {
+  const [data, setData] = useState<any[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [insights, setInsights] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
+    setInsights(null);
+
+    if (file.name.endsWith('.csv')) {
+      Papa.parse(file, {
+        header: true,
+        dynamicTyping: true,
+        complete: async (results) => {
+          try {
+            const parsedData = results.data as any[];
+            // Basic cleaning: remove empty rows
+            const cleanData = parsedData.filter(row => Object.keys(row).length > 0 && Object.values(row).some(v => v !== null));
+            const cols = Object.keys(cleanData[0] || {});
+            
+            setData(cleanData);
+            setColumns(cols);
+
+            // Generate summary for AI
+            const summary = generateSummary(cleanData, cols);
+            
+            // Ask AI for insights
+            const res = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ summaryProps: summary })
+            });
+
+            if (!res.ok) throw new Error("Failed to analyze data");
+            const aiData = await res.json();
+            setInsights(aiData);
+
+          } catch (err: any) {
+            setError(err.message || 'Error processing file');
+          } finally {
+            setLoading(false);
+          }
+        },
+        error: (err) => {
+          setError(err.message);
+          setLoading(false);
+        }
+      });
+    } else if (file.name.endsWith('.json')) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const json = JSON.parse(e.target?.result as string);
+          const parsedData = Array.isArray(json) ? json : [json];
+          const cols = Object.keys(parsedData[0] || {});
+          
+          setData(parsedData);
+          setColumns(cols);
+
+          // Generate summary for AI
+          const summary = generateSummary(parsedData, cols);
+          
+          const res = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ summaryProps: summary })
+          });
+
+          if (!res.ok) throw new Error("Failed to analyze data");
+          const aiData = await res.json();
+          setInsights(aiData);
+
+        } catch (err: any) {
+          setError('Invalid JSON format or analysis failed');
+        } finally {
+          setLoading(false);
+        }
+      };
+      reader.readAsText(file);
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/csv': ['.csv'],
+      'application/json': ['.json'],
+    },
+    maxFiles: 1
+  });
+
+  const generateSummary = (dataset: any[], cols: string[]) => {
+      // Basic statistical summary to send to AI (don't send full dataset to avoid token limits)
+      const sampleSize = Math.min(dataset.length, 5);
+      const types = cols.reduce((acc: any, col) => {
+          acc[col] = typeof dataset[0][col];
+          return acc;
+      }, {});
+      
+      return {
+          totalRows: dataset.length,
+          columns: cols,
+          columnTypes: types,
+          sampleData: dataset.slice(0, sampleSize)
+      };
+  };
+
+  return (
+    <div className="space-y-8">
+      <header>
+        <h1 className="text-3xl font-bold tracking-tight mb-1">Data Center</h1>
+        <p className="text-muted-foreground text-sm">Upload CSV or JSON files to generate automatic AI insights.</p>
+      </header>
+
+      <div {...getRootProps()} className={`
+        glass-panel p-12 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center text-center cursor-pointer transition-all
+        ${isDragActive ? 'border-accent bg-accent/5' : 'border-glass-border hover:border-primary/50'}
+      `}>
+        <input {...getInputProps()} />
+        <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-6">
+           <UploadCloud className={`w-8 h-8 ${isDragActive ? 'text-accent' : 'text-muted-foreground'}`} />
+        </div>
+        <h3 className="text-xl font-semibold mb-2">
+          {isDragActive ? 'Drop dataset here' : 'Drag & Drop dataset'}
+        </h3>
+        <p className="text-muted-foreground max-w-sm">
+          Supports .csv and .json files. We automatically clean, parse, and analyze your data using Gemini 3.1 Pro.
+        </p>
+      </div>
+
+      {error && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 rounded-xl bg-red-950/50 border border-red-900 flex items-center gap-3 text-red-200">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{error}</p>
+        </motion.div>
+      )}
+
+      {loading && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center py-20">
+           <AIPulse />
+           <p className="mt-8 text-xl font-semibold text-glow text-accent">AI is connecting to data...</p>
+           <p className="text-sm text-muted-foreground mt-2">Cleaning, parsing, and discovering insights.</p>
+        </motion.div>
+      )}
+
+      <AnimatePresence>
+        {insights && !loading && (
+          <motion.div 
+             initial={{ opacity: 0, y: 20 }}
+             animate={{ opacity: 1, y: 0 }}
+             className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+          >
+            {/* AI Insights Panel */}
+            <div className="lg:col-span-1 space-y-6">
+                <div className="glass-panel p-6 rounded-2xl border border-accent/20 shadow-[0_0_20px_rgba(34,211,238,0.1)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-accent/10 rounded-full blur-[50px] -mr-10 -mt-10" />
+                    <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <Sparkles className="w-5 h-5 text-accent" />
+                        AI Executive Summary
+                    </h3>
+                    <p className="text-sm leading-relaxed text-slate-300 font-medium border-l-2 border-accent pl-3">
+                        {insights.executiveSummary}
+                    </p>
+                </div>
+
+                <div className="glass-panel p-6 rounded-2xl">
+                    <h3 className="text-lg font-semibold mb-4">Key Priorities</h3>
+                    <ul className="space-y-4 text-sm text-slate-300">
+                        {insights.insights?.map((insight: string, i: number) => (
+                            <li key={i} className="flex gap-3">
+                                <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
+                                <span>{insight}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            </div>
+
+            {/* Data Preview */}
+            <div className="lg:col-span-2 glass-panel p-6 rounded-2xl flex flex-col h-full min-h-[400px]">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-lg font-semibold">Dataset Preview</h3>
+                        <p className="text-sm text-muted-foreground">{data.length} rows detected • {columns.length} columns</p>
+                    </div>
+                    <div className="px-3 py-1 bg-white/5 rounded-full text-xs font-semibold text-accent border border-accent/20">
+                        Suggested Chart: {insights.recommendedChartType}
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-auto rounded-xl border border-glass-border">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-muted-foreground uppercase bg-white/5 sticky top-0">
+                            <tr>
+                                {columns.slice(0, 8).map(col => (
+                                    <th key={col} className="px-4 py-3 font-medium whitespace-nowrap">{col}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-glass-border">
+                            {data.slice(0, 10).map((row, i) => (
+                                <tr key={i} className="hover:bg-white/5 transition-colors">
+                                    {columns.slice(0, 8).map(col => (
+                                        <td key={col} className="px-4 py-3 whitespace-nowrap">
+                                            {typeof row[col] === 'number' && Number.isInteger(row[col]) 
+                                                ? row[col] 
+                                                : typeof row[col] === 'number' 
+                                                    ? row[col].toFixed(2) 
+                                                    : String(row[col]).substring(0, 30)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="mt-4 text-center">
+                    <p className="text-xs text-muted-foreground italic">Showing first 10 rows</p>
+                </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
