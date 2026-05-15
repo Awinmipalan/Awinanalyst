@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Usage": {
+      "title": "Usage",
+      "description": "User daily usage tracking",
+      "type": "object",
+      "properties": {
+        "dailyCount": { "type": "number" },
+        "lastAccessDate": { "type": "string" }
+      },
+      "required": ["dailyCount", "lastAccessDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data"
+    },
+    "/users/{userId}/usage/daily": {
+      "schema": "Usage",
+      "description": "Daily usage limit tracking"
+    },
+    "/admins/{userId}": {
+      "schema": "User",
+      "description": "Administrative users"
+    }
+  }
+}

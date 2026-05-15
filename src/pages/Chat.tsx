@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, Upload, Sparkles, Loader2, Bot } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useData } from '@/src/context/DataContext';
 
 type Message = {
   id: string;
@@ -11,6 +12,7 @@ type Message = {
 };
 
 export default function Chat() {
+  const { insights } = useData();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -42,7 +44,10 @@ export default function Chat() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage })
+        body: JSON.stringify({ 
+           message: userMessage,
+           contextData: insights ? JSON.stringify(insights) : undefined
+        })
       });
       
       if (!res.ok) throw new Error("API Error");

@@ -9,6 +9,20 @@ import fs from "fs";
 // It will pick up the API key automatically from process.env.GEMINI_API_KEY
 const ai = new GoogleGenAI({});
 
+// Simple retry helper
+async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    if (retries > 0 && (error.status === 'UNAVAILABLE' || error.message?.includes('503'))) {
+      console.log(`Gemini API 503 error, retrying, ${retries} attempts left...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return retryWithBackoff(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
 // Set up multer for file uploads in memory for small datasets or temp storage
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -37,14 +51,14 @@ async function startServer() {
       // Convert previous messages to contents block if doing manual history, but we'll cheat a bit and just put it in the prompt or use chat initialization.
       // Usually, using chat API is cleaner:
       const chat = ai.chats.create({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-2.5-flash",
         config: {
             systemInstruction: "You are an elite AI Business Intelligence analyst for 'Awinlytics'. Provide sharp, modern, data-driven insights. Format answers beautifully in Markdown.",
         }
       });
 
       // If we had actual previous message history we'd seed it, but for now just send the current message with context
-      const response = await chat.sendMessage({ message: prompt });
+      const response = await retryWithBackoff(() => chat.sendMessage({ message: prompt }));
 
       res.json({ text: response.text });
     } catch (error: any) {
@@ -63,8 +77,8 @@ Data Summary:
 ${JSON.stringify(summaryProps, null, 2)}
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+      const response = await retryWithBackoff(() => ai.models.generateContent({
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -88,7 +102,7 @@ ${JSON.stringify(summaryProps, null, 2)}
                 required: ["insights", "recommendedChartType", "executiveSummary"]
             }
         }
-      });
+      }));
 
       const jsonStr = response.text || "{}";
       res.json(JSON.parse(jsonStr));

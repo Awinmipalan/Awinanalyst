@@ -43,7 +43,7 @@ export const pulseGlow: Variants = {
   }
 };
 
-export const hoverGlow = {
+export const hoverGlow: Variants = {
   hover: {
     boxShadow: "0 0 25px rgba(139,92,246,0.6)",
     scale: 1.02,

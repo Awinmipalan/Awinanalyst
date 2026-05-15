@@ -1,17 +1,39 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import { UploadCloud, File, AlertCircle, CheckCircle2, Loader2, Sparkles, Database } from 'lucide-react';
 import Papa from 'papaparse';
 import AIPulse from '@/src/components/AIPulse';
 import { Skeleton } from '@/src/components/Skeleton';
+import { useData } from '@/src/context/DataContext';
+import DynamicChartView from '@/src/components/DynamicChartView';
+import { checkAndIncrementUsage } from '../services/usageService';
 
 export default function DataCenter() {
-  const [data, setData] = useState<any[]>([]);
-  const [columns, setColumns] = useState<string[]>([]);
+  const { data, setData, columns, setColumns, insights, setInsights } = useData();
   const [loading, setLoading] = useState(false);
-  const [insights, setInsights] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [drillDownData, setDrillDownData] = useState<any[] | null>(null);
+  const pageSize = 10;
+
+  const filteredData = useMemo(() => {
+    let dataset = drillDownData || data;
+    if (!searchTerm) return dataset;
+    return dataset.filter(row =>
+      Object.values(row).some(val =>
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+  }, [data, drillDownData, searchTerm]);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredData.slice(startIndex, startIndex + pageSize);
+  }, [filteredData, currentPage]);
+
+  const totalPages = Math.ceil(filteredData.length / pageSize);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -27,6 +49,13 @@ export default function DataCenter() {
         dynamicTyping: true,
         complete: async (results) => {
           try {
+            const hasAccess = await checkAndIncrementUsage();
+            if (!hasAccess) {
+              setError('You have reached your daily limit of 2 uploads.');
+              setLoading(false);
+              return;
+            }
+
             const parsedData = results.data as any[];
             // Basic cleaning: remove empty rows
             const cleanData = parsedData.filter(row => Object.keys(row).length > 0 && Object.values(row).some(v => v !== null));
@@ -64,6 +93,13 @@ export default function DataCenter() {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
+          const hasAccess = await checkAndIncrementUsage();
+          if (!hasAccess) {
+              setError('You have reached your daily limit of 2 uploads.');
+              setLoading(false);
+              return;
+          }
+
           const json = JSON.parse(e.target?.result as string);
           const parsedData = Array.isArray(json) ? json : [json];
           const cols = Object.keys(parsedData[0] || {});
@@ -192,13 +228,24 @@ export default function DataCenter() {
 
             {/* Data Preview */}
             <div className="lg:col-span-2 glass-panel p-6 rounded-2xl flex flex-col h-full min-h-[400px]">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex flex-col sm:flex-row justify-between gap-4 mb-6">
                     <div>
                         <h3 className="text-lg font-semibold">Dataset Preview</h3>
-                        <p className="text-sm text-muted-foreground">{data.length} rows detected • {columns.length} columns</p>
+                        <p className="text-sm text-muted-foreground">{filteredData.length} records found • {columns.length} columns</p>
                     </div>
-                    <div className="px-3 py-1 bg-white/5 rounded-full text-xs font-semibold text-accent border border-accent/20">
-                        Suggested Chart: {insights.recommendedChartType}
+                    <div className="flex items-center gap-2">
+                        {drillDownData && (
+                            <button onClick={() => setDrillDownData(null)} className="text-xs px-3 py-1 bg-accent/20 text-accent rounded-lg hover:bg-accent/30">
+                                Clear Filter
+                            </button>
+                        )}
+                        <input 
+                          type="text" 
+                          placeholder="Search..." 
+                          value={searchTerm}
+                          onChange={(e) => {setSearchTerm(e.target.value); setCurrentPage(1);}}
+                          className="bg-white/5 border border-glass-border px-4 py-2 rounded-xl text-sm focus:outline-none focus:border-accent"
+                        />
                     </div>
                 </div>
 
@@ -212,7 +259,7 @@ export default function DataCenter() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-glass-border">
-                            {data.slice(0, 10).map((row, i) => (
+                            {paginatedData.map((row, i) => (
                                 <tr key={i} className="hover:bg-white/5 transition-colors">
                                     {columns.slice(0, 8).map(col => (
                                         <td key={col} className="px-4 py-3 whitespace-nowrap">
@@ -228,9 +275,41 @@ export default function DataCenter() {
                         </tbody>
                     </table>
                 </div>
-                <div className="mt-4 text-center">
-                    <p className="text-xs text-muted-foreground italic">Showing first 10 rows</p>
-                </div>
+
+                {totalPages > 1 && (
+                    <div className="mt-4 flex justify-between items-center text-sm">
+                        <button 
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(prev => prev - 1)}
+                            className="px-3 py-1 bg-white/5 rounded-lg disabled:opacity-50"
+                        >
+                            Previous
+                        </button>
+                        <span>Page {currentPage} of {totalPages}</span>
+                        <button 
+                            disabled={currentPage === totalPages}
+                            onClick={() => setCurrentPage(prev => prev + 1)}
+                            className="px-3 py-1 bg-white/5 rounded-lg disabled:opacity-50"
+                        >
+                            Next
+                        </button>
+                    </div>
+                )}
+            </div>
+            
+            {/* Dynamic Chart View */}
+            <div className="lg:col-span-3">
+              <DynamicChartView 
+                data={data} 
+                columns={columns} 
+                insights={insights} 
+                onDrillDown={(dp) => {
+                   const key = Object.keys(dp)[0];
+                   const val = dp[key];
+                   setDrillDownData(data.filter(row => row[key] === val));
+                   setCurrentPage(1);
+                }}
+              />
             </div>
           </motion.div>
         )}
