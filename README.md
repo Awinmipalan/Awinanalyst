@@ -6,18 +6,18 @@ Awin Analyst is an AI-native analytics application that combines a modern web in
 
 ## 🚀 What It Does
 
-The application is designed around a simple workflow:
-
 ```text
 Upload Dataset
      ↓
 Preview & Explore
      ↓
-Profile the Data
+Local Data Profiling
+     ↓
+Verified Statistics & Quality Checks
      ↓
 Generate Visualizations
      ↓
-AI-Assisted Analysis
+Gemini Interpretation
      ↓
 Executive Insights
      ↓
@@ -28,9 +28,7 @@ Users can work with supported CSV/JSON datasets, inspect the data, visualize imp
 
 ## 🎯 Project Goal
 
-The goal is to make exploratory data analysis more accessible by combining traditional analytical workflows with an AI assistant.
-
-Instead of requiring users to move manually between a spreadsheet, notebook, visualization tool, and AI assistant, Awin Analyst brings these activities into one analytical workspace.
+The goal is to make exploratory data analysis more accessible by combining traditional analytical workflows with an AI assistant while keeping calculations and evidence separate from AI interpretation.
 
 ## ✨ Core Features
 
@@ -40,7 +38,22 @@ Instead of requiring users to move manually between a spreadsheet, notebook, vis
 - CSV / JSON data support
 - Dataset preview and pagination
 - Search and exploration
-- Basic dataset profiling
+- Local data-quality profiling
+
+### 📐 Evidence-First Analytics
+
+The application calculates verified evidence locally before the AI layer is called:
+
+- Missing-value counts and rates
+- Duplicate-row detection
+- Column type classification
+- Cardinality / uniqueness
+- Numeric mean, median, minimum, maximum and standard deviation
+- IQR-based outlier counts
+- Top categorical values
+- Strong Pearson correlations between numeric fields
+
+Raw sample rows are excluded from the `/api/analyze` payload. Gemini receives the compact analytical profile and is instructed to interpret that evidence rather than invent calculations.
 
 ### 📊 Interactive Analysis
 
@@ -57,13 +70,6 @@ Instead of requiring users to move manually between a spreadsheet, notebook, vis
 - Recommended chart types
 - Follow-up analytical conversations
 
-### 🖥️ Application Experience
-
-- React-based interface
-- Dashboard-oriented navigation
-- Loading and error states
-- Responsive analytical workflow
-
 ---
 
 ## 🏗️ Architecture
@@ -77,16 +83,15 @@ Instead of requiring users to move manually between a spreadsheet, notebook, vis
               │                     │
         CSV / JSON                User
               ↓                     │
-      Dataset Profiling              │
+      Local Profiling               │
               ↓                     │
-       Statistics / Charts           │
-              └──────────┬──────────┘
-                         ↓
-                  Gemini AI Layer
-                         ↓
-              Structured AI Output
-                         ↓
-          Insights + Visualizations
+    Verified Evidence ──────────────┘
+              ↓
+       Gemini Interpretation
+              ↓
+      Structured AI Output
+              ↓
+     Insights + Visualizations
 ```
 
 ### Technology Stack
@@ -96,57 +101,49 @@ Instead of requiring users to move manually between a spreadsheet, notebook, vis
 | **React / TypeScript** | Frontend application |
 | **Vite** | Development/build tooling |
 | **Express** | Backend API |
-| **Google Gemini** | AI-powered analysis and conversation |
+| **Google Gemini** | AI-powered interpretation and conversation |
 | **Recharts** | Data visualization |
 | **Firebase** | Application/authentication services where configured |
-| **Multer** | File-upload handling |
+| **Papa Parse** | CSV parsing |
 
 ---
 
 ## 🧠 AI Design
 
-The application uses structured Gemini responses rather than relying only on free-form text generation. Analytical responses are represented through defined fields such as:
+The application uses structured Gemini responses rather than relying only on free-form text generation. Analytical responses contain defined fields such as:
 
 - Executive summary
 - Key insights
 - Recommended visualization
-- Supporting analytical content
 
-This makes the AI output easier for the frontend to render consistently.
-
-### Important Design Principle
-
-The long-term architecture is to keep **calculation and evidence generation separate from AI interpretation**:
+### Evidence Principle
 
 ```text
 Raw Data
    ↓
-Verified Data Profiling
+Verified Calculation
    ↓
-Statistical Calculations
+Evidence
    ↓
-Evidence / Metrics
+AI Interpretation
    ↓
-Gemini Interpretation
-   ↓
-Human-readable Insights
+Human-readable Insight
 ```
 
-This reduces the risk of treating an AI-generated statement as a verified calculation.
+Gemini is explicitly instructed not to invent values, counts, correlations, or causal claims. Correlations are presented as associations rather than proof of causation.
 
 ---
 
 ## 🔐 Data & Privacy Considerations
 
-Awin Analyst is designed as an analytical prototype and should not be treated as a secure environment for confidential or regulated data without additional controls.
+Awin Analyst is an analytical prototype and should not be treated as a secure environment for confidential or regulated data without additional controls.
 
-Before production use, the application should implement or strengthen:
+The application should continue to strengthen:
 
 - Server-side usage limits
 - File-size and file-type validation
 - Sensitive-data detection
 - Privacy controls
-- Secure API-key management
 - Authentication and authorization
 - Audit logging
 - Rate limiting
@@ -182,17 +179,25 @@ Do **not** commit credentials to GitHub.
 npm run dev
 ```
 
+### Type-check
+
+```bash
+npm run lint
+```
+
 ---
 
-## 📁 Recommended Project Structure
+## 📁 Project Structure
 
 ```text
 Awinanalyst/
 ├── src/
 │   ├── components/
+│   ├── context/
 │   ├── pages/
 │   ├── services/
-│   └── ...
+│   └── utils/
+│       └── dataProfiler.ts
 ├── server.ts
 ├── package.json
 ├── vite.config.ts
@@ -203,29 +208,30 @@ Awinanalyst/
 
 ## 🔮 Roadmap
 
-The next stage of Awin Analyst is to evolve from AI-assisted exploration into a more rigorous analytical engine.
-
 ### Data Quality Engine
 
-- Missing-value profiling
-- Duplicate detection
-- Type inference
-- Cardinality analysis
-- Outlier detection
-- Invalid-value detection
+- [x] Missing-value profiling
+- [x] Duplicate detection
+- [x] Type inference
+- [x] Cardinality analysis
+- [x] Outlier detection
+- [x] Numeric descriptive statistics
+- [x] Correlation analysis
+- [ ] Invalid-value rule engine
+- [ ] Automated cleaning suggestions
 
 ### Statistical Engine
 
-- Descriptive statistics
-- Distribution analysis
-- Correlation analysis
-- Trend detection
-- Anomaly detection
-- Basic regression analysis
+- [x] Descriptive statistics
+- [x] Correlation analysis
+- [ ] Distribution analysis
+- [ ] Trend detection
+- [ ] Anomaly detection
+- [ ] Basic regression analysis
 
 ### Evidence-backed AI
 
-Every generated insight should be traceable to:
+Every generated insight should ultimately be traceable to:
 
 ```text
 Insight
@@ -238,8 +244,6 @@ Column(s)
   ↓
 Calculation
 ```
-
-This is the direction required to make the platform useful for serious analytical work rather than simply generating attractive AI summaries.
 
 ---
 
