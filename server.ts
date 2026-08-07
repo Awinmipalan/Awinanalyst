@@ -5,26 +5,25 @@ import multer from "multer";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 
-// Initialize Gemini API
+// Initialize Gemini API lazily so missing credentials fail clearly at request time.
 let aiInstance: GoogleGenAI | null = null;
 
 function getAI() {
   if (!aiInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is missing. Please set it in the AI Studio Secrets panel.");
+      throw new Error("GEMINI_API_KEY environment variable is missing. Please configure it in your runtime secrets.");
     }
     aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;
 }
 
-// Simple retry helper
 async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    if (retries > 0 && (error.status === 'UNAVAILABLE' || error.message?.includes('503'))) {
+    if (retries > 0 && (error.status === "UNAVAILABLE" || error.message?.includes("503"))) {
       console.log(`Gemini API 503 error, retrying, ${retries} attempts left...`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return retryWithBackoff(fn, retries - 1, delay * 2);
@@ -33,43 +32,35 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 20
   }
 }
 
-// Set up multer for file uploads in memory for small datasets or temp storage
 const upload = multer({ storage: multer.memoryStorage() });
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "50mb" }));
+  // The analytics endpoint receives compact profiles, not raw datasets.
+  app.use(express.json({ limit: "2mb" }));
 
-  // API Routes
-  
-  // Health check
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
   });
 
-  // Chat endpoint
   app.post("/api/chat", async (req, res) => {
     try {
-      const { message, contextData, previousMessages } = req.body;
+      const { message, contextData } = req.body;
       let prompt = message;
       if (contextData) {
         prompt = `Context Data Summary:\n${contextData}\n\nUser Question: ${message}`;
       }
 
-      // Convert previous messages to contents block if doing manual history, but we'll cheat a bit and just put it in the prompt or use chat initialization.
-      // Usually, using chat API is cleaner:
       const chat = getAI().chats.create({
         model: "gemini-2.5-flash",
         config: {
-            systemInstruction: "You are an elite AI Business Intelligence analyst for 'Awinlytics'. Provide sharp, modern, data-driven insights. Format answers beautifully in Markdown.",
+          systemInstruction: "You are an elite AI Business Intelligence analyst for 'Awinlytics'. Provide sharp, modern, data-driven insights. Never invent statistics and distinguish association from causation. Format answers beautifully in Markdown."
         }
       });
 
-      // If we had actual previous message history we'd seed it, but for now just send the current message with context
       const response = await retryWithBackoff(() => chat.sendMessage({ message: prompt }));
-
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("Chat API Error:", error);
@@ -77,13 +68,19 @@ async function startServer() {
     }
   });
 
-  // Analytics Engine API for automated insights
   app.post("/api/analyze", async (req, res) => {
     try {
       const { summaryProps } = req.body;
-      
-      const prompt = `Analyze this dataset summary and suggest 3 key insights. Also suggest the best chart type to visualize this data (e.g., 'bar', 'line', 'pie', 'scatter').
-Data Summary:
+      if (!summaryProps || typeof summaryProps !== "object") {
+        return res.status(400).json({ error: "A verified dataset profile is required." });
+      }
+
+      const prompt = `You are an evidence-first data analyst. Interpret the verified dataset profile below.
+Do not invent values, counts, correlations, or causal claims. Use only the supplied evidence.
+Return 3 concise, decision-useful insights and one appropriate chart type.
+Correlation means association, not causation.
+
+Verified dataset profile:
 ${JSON.stringify(summaryProps, null, 2)}
 `;
 
@@ -91,52 +88,33 @@ ${JSON.stringify(summaryProps, null, 2)}
         model: "gemini-2.5-flash",
         contents: prompt,
         config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    insights: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
-                        description: "List of key insights"
-                    },
-                    recommendedChartType: {
-                        type: Type.STRING,
-                        description: "Best chart type for this data (bar, line, pie, scatter)"
-                    },
-                    executiveSummary: {
-                        type: Type.STRING,
-                        description: "A short 1-2 sentence executive summary of the data"
-                    }
-                },
-                required: ["insights", "recommendedChartType", "executiveSummary"]
-            }
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              insights: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of evidence-backed key insights" },
+              recommendedChartType: { type: Type.STRING, description: "Best chart type for this evidence" },
+              executiveSummary: { type: Type.STRING, description: "A short 1-2 sentence evidence-backed executive summary" }
+            },
+            required: ["insights", "recommendedChartType", "executiveSummary"]
+          }
         }
       }));
 
-      const jsonStr = response.text || "{}";
-      res.json(JSON.parse(jsonStr));
-
+      res.json(JSON.parse(response.text || "{}"));
     } catch (error: any) {
       console.error("Analyze API Error:", error);
       res.status(500).json({ error: error?.message || "Internal Server Error" });
     }
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
-    // Production serving
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
   app.listen(PORT, "0.0.0.0", () => {
