@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "awin-analyst",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +8,9 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx tests/dataProfiler.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -43,5 +45,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
-  }
+  },
+  "description": "Evidence-first AI analytics workspace for dataset profiling, visualization, and Gemini-assisted interpretation."
 }
